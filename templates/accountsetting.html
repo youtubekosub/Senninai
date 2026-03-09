@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - SenninAI</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --bg-main: #212121;
+            --border-color: #3d3d3d;
+            --text-main: #ececec;
+            --accent: #10a37f;
+        }
+        body { background: var(--bg-main); color: var(--text-main); font-family: sans-serif; display: flex; justify-content: center; padding: 20px; }
+        .settings-container { width: 100%; max-width: 650px; background: #2f2f2f; border-radius: 12px; padding: 30px; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+        h1 { margin-bottom: 24px; font-size: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; }
+        .setting-section { margin-bottom: 30px; }
+        .setting-item { margin-bottom: 20px; }
+        .label-group { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        label { font-weight: bold; font-size: 0.9rem; }
+        input, select, textarea { 
+            width: 100%; padding: 12px; background: #171717; border: 1px solid var(--border-color); 
+            color: white; border-radius: 8px; outline: none; transition: 0.2s;
+        }
+        input:focus { border-color: var(--accent); }
+        .desc { font-size: 0.75rem; color: #b4b4b4; margin-top: 5px; }
+        .btn-group { display: flex; gap: 10px; margin-top: 30px; }
+        button { flex: 1; padding: 12px; border-radius: 8px; cursor: pointer; border: none; font-weight: bold; transition: 0.2s; }
+        .save-btn { background: var(--accent); color: white; }
+        .back-btn { background: transparent; color: white; border: 1px solid var(--border-color); }
+        .danger-btn { background: #ef4444; color: white; margin-top: 10px; width: 100%; }
+        button:hover { opacity: 0.8; transform: translateY(-1px); }
+    </style>
+</head>
+<body>
+    <div class="settings-container">
+        <h1><i class="fas fa-sliders-h"></i> SenninAI Settings</h1>
+        
+        <div class="setting-section">
+            <div class="setting-item">
+                <label>Groq API Key (Optional)</label>
+                <input type="password" id="api-key" placeholder="gsk_...">
+                <p class="desc">空欄の場合、サーバー側のキーを使用します。</p>
+            </div>
+
+            <div class="setting-item">
+                <label>AI Model</label>
+                <select id="model-select">
+                    <option value="llama-3.3-70b-versatile">Llama 3.3 70B (高性能)</option>
+                    <option value="llama-3.1-8b-instant">Llama 3.1 8B (超爆速)</option>
+                    <option value="mixtral-8x7b-32768">Mixtral 8x7B</option>
+                </select>
+            </div>
+
+            <div class="setting-item">
+                <label>System Prompt (AIの性格)</label>
+                <textarea id="system-prompt" rows="4" placeholder="あなたは優秀なアシスタントです..."></textarea>
+                <p class="desc">GitHubリポジトリのプロンプトをここに貼り付けてください。</p>
+            </div>
+        </div>
+
+        <div class="setting-section" style="border-top: 1px solid var(--border-color); pt: 20px;">
+            <label>Data Management</label>
+            <button class="danger-btn" onclick="clearData()">全てのチャット履歴を削除</button>
+        </div>
+
+        <div class="btn-group">
+            <button class="back-btn" onclick="location.href='/'">キャンセル</button>
+            <button class="save-btn" onclick="saveSettings()">設定を保存</button>
+        </div>
+    </div>
+
+    <script>
+        // 設定の読み込み
+        window.onload = () => {
+            const config = JSON.parse(localStorage.getItem('sennin_config') || '{}');
+            document.getElementById('api-key').value = config.api_key || '';
+            document.getElementById('model-select').value = config.model || 'llama-3.3-70b-versatile';
+            document.getElementById('system-prompt').value = config.system_prompt || 'あなたはSenninAIという名前の有能なアシスタントです。';
+        };
+
+        function saveSettings() {
+            const config = {
+                api_key: document.getElementById('api-key').value,
+                model: document.getElementById('model-select').value,
+                system_prompt: document.getElementById('system-prompt').value
+            };
+            localStorage.setItem('sennin_config', JSON.stringify(config));
+            alert('設定を保存しました！');
+            location.href = '/';
+        }
+
+        function clearData() {
+            if(confirm('全ての履歴を削除しますか？')) {
+                localStorage.removeItem('sennin_history');
+                alert('削除完了');
+                location.href = '/';
+            }
+        }
+    </script>
+</body>
+</html>
