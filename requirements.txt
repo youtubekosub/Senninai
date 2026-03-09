@@ -1,2 +1,4 @@
 Flask
 groq
+python-dotenv
+gunicorn
