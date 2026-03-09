@@ -47,12 +47,24 @@
         .welcome-screen p { color: var(--text-muted); }
 
         /* Messages */
-        .message-row { padding: 24px 15%; width: 100%; display: flex; animation: fadeIn 0.4s ease; border-bottom: 1px solid rgba(255,255,255,0.03); }
+        .message-row { padding: 24px 15%; width: 100%; display: flex; flex-direction: column; animation: fadeIn 0.4s ease; border-bottom: 1px solid rgba(255,255,255,0.03); }
         .msg-content { max-width: 800px; margin: 0 auto; display: flex; gap: 20px; width: 100%; }
         .msg-icon { width: 30px; height: 30px; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 0.8rem; font-weight: bold; }
         .ai .msg-icon { background: var(--accent); color: white; }
         .user .msg-icon { background: #5436da; color: white; }
         .msg-text { line-height: 1.6; font-size: 1rem; color: #d1d1d1; white-space: pre-wrap; word-break: break-word; }
+
+        /* Actions Style */
+        .ai-actions { display: flex; gap: 12px; margin-top: 12px; margin-left: 50px; opacity: 0.6; transition: 0.2s; }
+        .ai-actions:hover { opacity: 1; }
+        .action-btn { background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.75rem; display: flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 4px; }
+        .action-btn:hover { background: #2b2b2b; color: white; }
+
+        /* Share Modal UI */
+        #share-modal { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #2f2f2f; border: 1px solid var(--border-color); padding: 20px; border-radius: 12px; z-index: 100; box-shadow: 0 10px 30px rgba(0,0,0,0.5); width: 300px; }
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 90; }
+        .share-option { display: block; width: 100%; padding: 12px; margin-bottom: 8px; background: #212121; border: 1px solid var(--border-color); color: white; border-radius: 6px; cursor: pointer; text-align: left; }
+        .share-option:hover { background: var(--accent); border-color: var(--accent); }
 
         /* Input Area */
         .input-area { position: absolute; bottom: 0; width: 100%; padding: 20px 15% 40px; background: linear-gradient(transparent, var(--bg-main) 20%); }
@@ -74,12 +86,21 @@
     </style>
 </head>
 <body>
+    <div class="modal-overlay" id="modal-overlay"></div>
+    <div id="share-modal">
+        <p style="font-weight:bold; margin-bottom:15px; font-size:0.9rem;">Export conversation</p>
+        <button class="share-option" onclick="exportChat('md')">Markdown (.md)</button>
+        <button class="share-option" onclick="exportChat('json')">JSON (.json)</button>
+        <button class="share-option" onclick="exportChat('html')">HTML (.html)</button>
+        <button class="action-btn" style="margin-top:10px; width:100%; justify-content:center;" onclick="toggleShareModal()">Cancel</button>
+    </div>
+
     <div class="container">
         <aside class="sidebar">
             <button class="new-chat" id="new-chat-btn"><i class="fas fa-plus"></i> New Chat</button>
             <div class="nav-history" id="history-list">
                 <p class="nav-title">Recent</p>
-                </div>
+            </div>
             <div class="sidebar-footer">
                 <button class="user-profile" onclick="location.href='/accountsetting'">
                     <div class="avatar">S</div>
@@ -91,7 +112,9 @@
         <main class="chat-main">
             <header class="chat-header">
                 <div class="model-info" id="current-model-display">SenninAI <span>v1.0</span></div>
-                <div class="header-actions"><i class="fas fa-share-square" style="cursor:pointer; color:var(--text-muted)"></i></div>
+                <div class="header-actions">
+                    <i class="fas fa-share-square" id="global-share-btn" style="cursor:pointer; color:var(--text-muted)" onclick="toggleShareModal()"></i>
+                </div>
             </header>
 
             <div id="chat-display" class="chat-display">
@@ -117,24 +140,31 @@
         const chatDisplay = document.getElementById('chat-display');
         const newChatBtn = document.getElementById('new-chat-btn');
         const historyList = document.getElementById('history-list');
+        const modal = document.getElementById('share-modal');
+        const overlay = document.getElementById('modal-overlay');
         let currentChatId = null;
+        let isTyping = false;
 
-        // 初期化：履歴と設定の読み込み
         window.onload = () => {
             renderHistory();
+            applyConfig();
+        };
+
+        function applyConfig() {
             const config = JSON.parse(localStorage.getItem('sennin_config') || '{}');
             if (config.model) {
-                document.getElementById('current-model-display').innerHTML = `SenninAI <span style="background:#444">${config.model.split('-')[1]}</span>`;
+                const modelShort = config.model.includes('70b') ? '70B' : '8B';
+                document.getElementById('current-model-display').innerHTML = `SenninAI <span style="background:var(--accent); color:white;">${modelShort}</span>`;
             }
-        };
+        }
 
         userInput.addEventListener('input', () => {
             userInput.style.height = 'auto';
             userInput.style.height = userInput.scrollHeight + 'px';
-            sendBtn.disabled = userInput.value.trim() === '';
+            sendBtn.disabled = userInput.value.trim() === '' || isTyping;
         });
 
-        sendBtn.addEventListener('click', sendMessage);
+        sendBtn.addEventListener('click', () => sendMessage());
 
         userInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey && !sendBtn.disabled) {
@@ -156,20 +186,23 @@
             sendBtn.disabled = true;
         });
 
-        async function sendMessage() {
-            const text = userInput.value.trim();
-            if (!text) return;
+        async function sendMessage(retryText = null) {
+            const text = retryText || userInput.value.trim();
+            if (!text || isTyping) return;
 
             const config = JSON.parse(localStorage.getItem('sennin_config') || '{}');
             const welcome = document.getElementById('welcome-screen');
             if (welcome) welcome.remove();
 
-            appendMessage('user', text);
+            if (!retryText) appendMessage('user', text);
             userInput.value = '';
             userInput.style.height = 'auto';
             sendBtn.disabled = true;
+            isTyping = true;
 
             const aiRow = appendMessage('ai', '<span class="typing">● ● ●</span>');
+            const history = JSON.parse(localStorage.getItem('sennin_history') || '[]');
+            const currentChat = history.find(h => h.id === currentChatId) || { messages: [] };
             
             try {
                 const res = await fetch('/chat', {
@@ -177,21 +210,26 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ 
                         message: text,
+                        history: currentChat.messages.slice(-6),
                         model: config.model,
                         system_prompt: config.system_prompt,
                         api_key: config.api_key
                     })
                 });
                 
-                if (!res.ok) throw new Error('Network response was not ok');
-                const data = await res.json();
+                if (res.status === 429) throw new Error('無料枠の制限に達しました。1分待ってください。');
+                if (!res.ok) throw new Error('サーバーエラーが発生しました。');
                 
+                const data = await res.json();
                 aiRow.querySelector('.msg-text').innerText = '';
-                typeEffect(aiRow.querySelector('.msg-text'), data.response);
+                await typeEffect(aiRow.querySelector('.msg-text'), data.response);
                 saveToHistory(text, data.response);
+                addMessageActions(aiRow, text, data.response);
             } catch (err) {
-                aiRow.querySelector('.msg-text').innerText = "エラー: 接続に失敗しました。";
-                console.error(err);
+                aiRow.querySelector('.msg-text').innerHTML = `<span style="color:#ff6b6b;">${err.message}</span>`;
+            } finally {
+                isTyping = false;
+                sendBtn.disabled = userInput.value.trim() === '';
             }
         }
 
@@ -209,38 +247,54 @@
             return row;
         }
 
+        function addMessageActions(row, originalPrompt, responseText) {
+            const actions = document.createElement('div');
+            actions.className = 'ai-actions';
+            actions.innerHTML = `
+                <button class="action-btn" title="Copy" onclick="copyText(this, \`${responseText.replace(/`/g, '\\`')}\`)"><i class="far fa-copy"></i></button>
+                <button class="action-btn" title="Retry" onclick="retryMessage(\`${originalPrompt.replace(/`/g, '\\`')}\`)"><i class="fas fa-redo-alt"></i></button>
+                <button class="action-btn" title="Google Search" onclick="googleSearch(\`${originalPrompt.replace(/`/g, '\\`')}\`)"><i class="fab fa-google"></i></button>
+            `;
+            row.appendChild(actions);
+        }
+
         function typeEffect(element, text) {
-            element.innerHTML = '';
-            let i = 0;
-            const interval = setInterval(() => {
-                if (i < text.length) {
-                    element.innerHTML += text.charAt(i);
-                    i++;
-                    chatDisplay.scrollTop = chatDisplay.scrollHeight;
-                } else {
-                    clearInterval(interval);
-                }
-            }, 15);
+            return new Promise((resolve) => {
+                let i = 0;
+                const interval = setInterval(() => {
+                    if (i < text.length) {
+                        element.innerHTML += text.charAt(i);
+                        i++;
+                        if (i % 3 === 0) chatDisplay.scrollTop = chatDisplay.scrollHeight;
+                    } else {
+                        clearInterval(interval);
+                        resolve();
+                    }
+                }, 12);
+            });
         }
 
         function saveToHistory(userMsg, aiMsg) {
             let history = JSON.parse(localStorage.getItem('sennin_history') || '[]');
             if (!currentChatId) {
                 currentChatId = Date.now();
-                history.unshift({ id: currentChatId, title: userMsg.substring(0, 20), messages: [] });
+                history.unshift({ id: currentChatId, title: userMsg.substring(0, 30), messages: [] });
             }
             const chat = history.find(h => h.id === currentChatId);
-            chat.messages.push({ role: 'user', content: userMsg }, { role: 'ai', content: aiMsg });
-            localStorage.setItem('sennin_history', JSON.stringify(history));
-            renderHistory();
+            if (chat) {
+                chat.messages.push({ role: 'user', content: userMsg }, { role: 'ai', content: aiMsg });
+                localStorage.setItem('sennin_history', JSON.stringify(history));
+                renderHistory();
+            }
         }
 
         function renderHistory() {
             const history = JSON.parse(localStorage.getItem('sennin_history') || '[]');
             historyList.innerHTML = '<p class="nav-title">Recent</p>';
-            history.forEach(h => {
+            history.slice(0, 15).forEach(h => {
                 const item = document.createElement('div');
                 item.className = 'history-item';
+                if (h.id === currentChatId) item.style.background = '#2b2b2b';
                 item.innerHTML = `<i class="far fa-comment-alt"></i> ${h.title}`;
                 item.onclick = () => loadChat(h.id);
                 historyList.appendChild(item);
@@ -248,13 +302,73 @@
         }
 
         function loadChat(id) {
+            if (isTyping) return;
             const history = JSON.parse(localStorage.getItem('sennin_history') || '[]');
             const chat = history.find(h => h.id === id);
+            if (!chat) return;
             currentChatId = id;
-            const welcome = document.getElementById('welcome-screen');
-            if (welcome) welcome.remove();
             chatDisplay.innerHTML = '';
-            chat.messages.forEach(m => appendMessage(m.role, m.content));
+            chat.messages.forEach((m, idx) => {
+                const row = appendMessage(m.role, m.content);
+                if(m.role === 'ai') addMessageActions(row, chat.messages[idx-1].content, m.content);
+            });
+            renderHistory();
+        }
+
+        // --- New Actions Logic ---
+        function copyText(btn, text) {
+            navigator.clipboard.writeText(text).then(() => {
+                const icon = btn.querySelector('i');
+                icon.className = 'fas fa-check';
+                setTimeout(() => icon.className = 'far fa-copy', 2000);
+            });
+        }
+
+        function retryMessage(text) {
+            if (isTyping) return;
+            sendMessage(text);
+        }
+
+        function googleSearch(text) {
+            window.open(`https://www.google.com/search?q=${encodeURIComponent(text)}`, '_blank');
+        }
+
+        function toggleShareModal() {
+            const isVisible = modal.style.display === 'block';
+            modal.style.display = isVisible ? 'none' : 'block';
+            overlay.style.display = isVisible ? 'none' : 'block';
+        }
+
+        overlay.onclick = toggleShareModal;
+
+        function exportChat(type) {
+            const history = JSON.parse(localStorage.getItem('sennin_history') || '[]');
+            const chat = history.find(h => h.id === currentChatId);
+            if (!chat) return alert("No active chat to export.");
+
+            let content = "";
+            let fileName = `chat_export_${currentChatId}`;
+
+            if (type === 'md') {
+                content = chat.messages.map(m => `### ${m.role === 'user' ? 'USER' : 'AI'}\n${m.content}\n`).join('\n---\n');
+                fileName += ".md";
+            } else if (type === 'json') {
+                content = JSON.stringify(chat, null, 2);
+                fileName += ".json";
+            } else if (type === 'html') {
+                content = `<html><body style="background:#212121;color:#ececec;font-family:sans-serif;padding:20px;">` + 
+                          chat.messages.map(m => `<p><b>${m.role.toUpperCase()}:</b><br>${m.content.replace(/\n/g, '<br>')}</p><hr>`).join('') + 
+                          `</body></html>`;
+                fileName += ".html";
+            }
+
+            const blob = new Blob([content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            a.click();
+            toggleShareModal();
         }
     </script>
 </body>
