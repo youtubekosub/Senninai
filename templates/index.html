@@ -52,7 +52,16 @@
         .msg-icon { width: 30px; height: 30px; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 0.8rem; font-weight: bold; }
         .ai .msg-icon { background: var(--accent); color: white; }
         .user .msg-icon { background: #5436da; color: white; }
-        .msg-text { line-height: 1.6; font-size: 1rem; color: #d1d1d1; white-space: pre-wrap; word-break: break-word; }
+        .msg-text { line-height: 1.6; font-size: 1rem; color: #d1d1d1; white-space: pre-wrap; word-break: break-word; width: 100%; }
+
+        /* --- Code & Table Styles --- */
+        code { background: #1a1a1a; padding: 2px 4px; border-radius: 4px; font-family: 'Courier New', Courier, monospace; color: #ff79c6; }
+        pre { background: #0d0d0d; padding: 15px; border-radius: 8px; overflow-x: auto; margin: 10px 0; border: 1px solid var(--border-color); }
+        pre code { background: transparent; padding: 0; color: #f8f8f2; white-space: pre; }
+        table { border-collapse: collapse; width: 100%; margin: 15px 0; background: #2a2a2a; border-radius: 8px; overflow: hidden; }
+        th, td { border: 1px solid var(--border-color); padding: 10px; text-align: left; }
+        th { background: #333; color: white; }
+        /* --------------------------- */
 
         /* Actions Style */
         .ai-actions { display: flex; gap: 12px; margin-top: 12px; margin-left: 50px; opacity: 0.6; transition: 0.2s; }
@@ -77,7 +86,6 @@
 
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
-        /* Mobile Adjustments */
         @media (max-width: 768px) {
             .sidebar { display: none; }
             .message-row { padding: 20px 5%; }
@@ -175,12 +183,7 @@
 
         newChatBtn.addEventListener('click', () => {
             currentChatId = null;
-            chatDisplay.innerHTML = `
-                <div class="welcome-screen" id="welcome-screen">
-                    <h1>SenninAI</h1>
-                    <p>どのようにサポートしましょうか？</p>
-                </div>
-            `;
+            chatDisplay.innerHTML = `<div class="welcome-screen" id="welcome-screen"><h1>SenninAI</h1><p>どのようにサポートしましょうか？</p></div>`;
             userInput.value = '';
             userInput.style.height = 'auto';
             sendBtn.disabled = true;
@@ -221,8 +224,13 @@
                 if (!res.ok) throw new Error('サーバーエラーが発生しました。');
                 
                 const data = await res.json();
-                aiRow.querySelector('.msg-text').innerText = '';
-                await typeEffect(aiRow.querySelector('.msg-text'), data.response);
+                const target = aiRow.querySelector('.msg-text');
+                target.innerText = '';
+                await typeEffect(target, data.response);
+                
+                // タイピング後にMarkdown（表・コード）をHTMLに変換
+                target.innerHTML = formatMarkdown(data.response);
+                
                 saveToHistory(text, data.response);
                 addMessageActions(aiRow, text, data.response);
             } catch (err) {
@@ -239,21 +247,38 @@
             row.innerHTML = `
                 <div class="msg-content">
                     <div class="msg-icon">${role === 'ai' ? 'S' : 'U'}</div>
-                    <div class="msg-text">${text}</div>
+                    <div class="msg-text">${role === 'ai' ? text : text}</div>
                 </div>
             `;
+            if(role === 'user') row.querySelector('.msg-text').innerText = text; // Userはプレーンテキスト
             chatDisplay.appendChild(row);
             chatDisplay.scrollTop = chatDisplay.scrollHeight;
             return row;
+        }
+
+        // --- Markdown Parsing Logic ---
+        function formatMarkdown(text) {
+            // 1. コードブロック変換
+            let html = text.replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+            // 2. インラインコード
+            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+            // 3. テーブル変換
+            html = html.replace(/\n(\|.*\|)\n(\|[-| :]*\|)\n((?:\|.*\|\n?)*)/g, (match, header, divider, rows) => {
+                const toRow = (line) => `<tr>${line.split('|').filter(c => c.trim() !== '').map(c => `<td>${c.trim()}</td>`).join('')}</tr>`;
+                const headRow = `<tr>${header.split('|').filter(c => c.trim() !== '').map(c => `<th>${c.trim()}</th>`).join('')}</tr>`;
+                const bodyRows = rows.trim().split('\n').map(toRow).join('');
+                return `<table><thead>${headRow}</thead><tbody>${bodyRows}</tbody></table>`;
+            });
+            return html;
         }
 
         function addMessageActions(row, originalPrompt, responseText) {
             const actions = document.createElement('div');
             actions.className = 'ai-actions';
             actions.innerHTML = `
-                <button class="action-btn" title="Copy" onclick="copyText(this, \`${responseText.replace(/`/g, '\\`')}\`)"><i class="far fa-copy"></i></button>
-                <button class="action-btn" title="Retry" onclick="retryMessage(\`${originalPrompt.replace(/`/g, '\\`')}\`)"><i class="fas fa-redo-alt"></i></button>
-                <button class="action-btn" title="Google Search" onclick="googleSearch(\`${originalPrompt.replace(/`/g, '\\`')}\`)"><i class="fab fa-google"></i></button>
+                <button class="action-btn" title="Copy" onclick="copyText(this, \`${responseText.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`)"><i class="far fa-copy"></i></button>
+                <button class="action-btn" title="Retry" onclick="retryMessage(\`${originalPrompt.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`)"><i class="fas fa-redo-alt"></i></button>
+                <button class="action-btn" title="Google Search" onclick="googleSearch(\`${originalPrompt.replace(/`/g, '\\`').replace(/\$/g, '\\$')}\`)"><i class="fab fa-google"></i></button>
             `;
             row.appendChild(actions);
         }
@@ -270,7 +295,7 @@
                         clearInterval(interval);
                         resolve();
                     }
-                }, 12);
+                }, 10);
             });
         }
 
@@ -310,12 +335,15 @@
             chatDisplay.innerHTML = '';
             chat.messages.forEach((m, idx) => {
                 const row = appendMessage(m.role, m.content);
-                if(m.role === 'ai') addMessageActions(row, chat.messages[idx-1].content, m.content);
+                if(m.role === 'ai') {
+                    const target = row.querySelector('.msg-text');
+                    target.innerHTML = formatMarkdown(m.content);
+                    addMessageActions(row, chat.messages[idx-1].content, m.content);
+                }
             });
             renderHistory();
         }
 
-        // --- New Actions Logic ---
         function copyText(btn, text) {
             navigator.clipboard.writeText(text).then(() => {
                 const icon = btn.querySelector('i');
@@ -345,10 +373,8 @@
             const history = JSON.parse(localStorage.getItem('sennin_history') || '[]');
             const chat = history.find(h => h.id === currentChatId);
             if (!chat) return alert("No active chat to export.");
-
             let content = "";
             let fileName = `chat_export_${currentChatId}`;
-
             if (type === 'md') {
                 content = chat.messages.map(m => `### ${m.role === 'user' ? 'USER' : 'AI'}\n${m.content}\n`).join('\n---\n');
                 fileName += ".md";
@@ -357,11 +383,10 @@
                 fileName += ".json";
             } else if (type === 'html') {
                 content = `<html><body style="background:#212121;color:#ececec;font-family:sans-serif;padding:20px;">` + 
-                          chat.messages.map(m => `<p><b>${m.role.toUpperCase()}:</b><br>${m.content.replace(/\n/g, '<br>')}</p><hr>`).join('') + 
+                          chat.messages.map(m => `<p><b>${m.role.toUpperCase()}:</b><br>${formatMarkdown(m.content)}</p><hr>`).join('') + 
                           `</body></html>`;
                 fileName += ".html";
             }
-
             const blob = new Blob([content], { type: 'text/plain' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
