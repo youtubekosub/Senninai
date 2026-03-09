@@ -77,13 +77,11 @@
     <div class="container">
         <aside class="sidebar">
             <button class="new-chat" id="new-chat-btn"><i class="fas fa-plus"></i> New Chat</button>
-            <div class="nav-history">
+            <div class="nav-history" id="history-list">
                 <p class="nav-title">Recent</p>
-                <div class="history-item" onclick="loadDummyHistory('Welcome to SenninAI')"><i class="far fa-comment-alt"></i> Welcome to SenninAI</div>
-                <div class="history-item" onclick="loadDummyHistory('Programming Help')"><i class="far fa-comment-alt"></i> Programming Help</div>
-            </div>
+                </div>
             <div class="sidebar-footer">
-                <button class="user-profile" onclick="alert('User Settings Open')">
+                <button class="user-profile" onclick="location.href='/accountsetting'">
                     <div class="avatar">S</div>
                     <span>Sennin User</span>
                 </button>
@@ -92,7 +90,7 @@
 
         <main class="chat-main">
             <header class="chat-header">
-                <div class="model-info">SenninAI <span>v1.0</span></div>
+                <div class="model-info" id="current-model-display">SenninAI <span>v1.0</span></div>
                 <div class="header-actions"><i class="fas fa-share-square" style="cursor:pointer; color:var(--text-muted)"></i></div>
             </header>
 
@@ -118,19 +116,26 @@
         const sendBtn = document.getElementById('send-btn');
         const chatDisplay = document.getElementById('chat-display');
         const newChatBtn = document.getElementById('new-chat-btn');
-        const welcomeScreen = document.getElementById('welcome-screen');
+        const historyList = document.getElementById('history-list');
+        let currentChatId = null;
 
-        // 自動改行ロジック
+        // 初期化：履歴と設定の読み込み
+        window.onload = () => {
+            renderHistory();
+            const config = JSON.parse(localStorage.getItem('sennin_config') || '{}');
+            if (config.model) {
+                document.getElementById('current-model-display').innerHTML = `SenninAI <span style="background:#444">${config.model.split('-')[1]}</span>`;
+            }
+        };
+
         userInput.addEventListener('input', () => {
             userInput.style.height = 'auto';
             userInput.style.height = userInput.scrollHeight + 'px';
             sendBtn.disabled = userInput.value.trim() === '';
         });
 
-        // 送信ボタンクリック
         sendBtn.addEventListener('click', sendMessage);
 
-        // Enterキーで送信 (Shift+Enterは改行)
         userInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey && !sendBtn.disabled) {
                 e.preventDefault();
@@ -138,8 +143,8 @@
             }
         });
 
-        // New Chatボタン (リセット機能)
         newChatBtn.addEventListener('click', () => {
+            currentChatId = null;
             chatDisplay.innerHTML = `
                 <div class="welcome-screen" id="welcome-screen">
                     <h1>SenninAI</h1>
@@ -151,46 +156,41 @@
             sendBtn.disabled = true;
         });
 
-        // 履歴クリック時のダミー反応
-        function loadDummyHistory(title) {
-            alert(`History: "${title}" を読み込みます（デモ）`);
-        }
-
         async function sendMessage() {
             const text = userInput.value.trim();
             if (!text) return;
 
-            // 初回送信時にウェルカム画面を消す
+            const config = JSON.parse(localStorage.getItem('sennin_config') || '{}');
             const welcome = document.getElementById('welcome-screen');
             if (welcome) welcome.remove();
 
-            // ユーザーメッセージ表示
             appendMessage('user', text);
-            
-            // 入力欄リセット
             userInput.value = '';
             userInput.style.height = 'auto';
             sendBtn.disabled = true;
 
-            // AIのローディング表示 (点滅エフェクト)
             const aiRow = appendMessage('ai', '<span class="typing">● ● ●</span>');
             
             try {
-                // 実際のAPIリクエスト
                 const res = await fetch('/chat', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ message: text })
+                    body: JSON.stringify({ 
+                        message: text,
+                        model: config.model,
+                        system_prompt: config.system_prompt,
+                        api_key: config.api_key
+                    })
                 });
                 
                 if (!res.ok) throw new Error('Network response was not ok');
-                
                 const data = await res.json();
                 
-                // タイピングエフェクトで回答を表示
+                aiRow.querySelector('.msg-text').innerText = '';
                 typeEffect(aiRow.querySelector('.msg-text'), data.response);
+                saveToHistory(text, data.response);
             } catch (err) {
-                aiRow.querySelector('.msg-text').innerText = "エラー: 接続に失敗しました。APIキーまたはサーバーの状態を確認してください。";
+                aiRow.querySelector('.msg-text').innerText = "エラー: 接続に失敗しました。";
                 console.error(err);
             }
         }
@@ -212,7 +212,6 @@
         function typeEffect(element, text) {
             element.innerHTML = '';
             let i = 0;
-            // タイピング速度 (15ms)
             const interval = setInterval(() => {
                 if (i < text.length) {
                     element.innerHTML += text.charAt(i);
@@ -222,6 +221,40 @@
                     clearInterval(interval);
                 }
             }, 15);
+        }
+
+        function saveToHistory(userMsg, aiMsg) {
+            let history = JSON.parse(localStorage.getItem('sennin_history') || '[]');
+            if (!currentChatId) {
+                currentChatId = Date.now();
+                history.unshift({ id: currentChatId, title: userMsg.substring(0, 20), messages: [] });
+            }
+            const chat = history.find(h => h.id === currentChatId);
+            chat.messages.push({ role: 'user', content: userMsg }, { role: 'ai', content: aiMsg });
+            localStorage.setItem('sennin_history', JSON.stringify(history));
+            renderHistory();
+        }
+
+        function renderHistory() {
+            const history = JSON.parse(localStorage.getItem('sennin_history') || '[]');
+            historyList.innerHTML = '<p class="nav-title">Recent</p>';
+            history.forEach(h => {
+                const item = document.createElement('div');
+                item.className = 'history-item';
+                item.innerHTML = `<i class="far fa-comment-alt"></i> ${h.title}`;
+                item.onclick = () => loadChat(h.id);
+                historyList.appendChild(item);
+            });
+        }
+
+        function loadChat(id) {
+            const history = JSON.parse(localStorage.getItem('sennin_history') || '[]');
+            const chat = history.find(h => h.id === id);
+            currentChatId = id;
+            const welcome = document.getElementById('welcome-screen');
+            if (welcome) welcome.remove();
+            chatDisplay.innerHTML = '';
+            chat.messages.forEach(m => appendMessage(m.role, m.content));
         }
     </script>
 </body>
