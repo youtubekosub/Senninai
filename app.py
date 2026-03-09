@@ -4,25 +4,39 @@ import os
 
 app = Flask(__name__)
 
-# Groqクライアント設定（環境変数から取得）
-client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
-
-# デフォルトのシステムプロンプト（リポジトリの内容をここに反映）
+# デフォルトのシステムプロンプト
 DEFAULT_SYSTEM_PROMPT = "あなたはSenninAIという名前の、非常に賢く謙虚なAIアシスタントです。"
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
+@app.route('/accountsetting')
+def account_setting():
+    return render_template('accountsetting.html')
+
 @app.route('/chat', methods=['POST'])
 def chat():
     data = request.json
     user_message = data.get("message")
+    
+    # フロントエンドの設定値を取得（値がない場合はデフォルト値を使用）
     system_prompt = data.get("system_prompt", DEFAULT_SYSTEM_PROMPT)
+    model_name = data.get("model", "llama-3.3-70b-versatile")
+    user_api_key = data.get("api_key")
+
+    # APIキーの選定：ユーザー入力があればそれを優先、なければ環境変数を使用
+    active_api_key = user_api_key if user_api_key else os.environ.get("GROQ_API_KEY")
+
+    if not active_api_key:
+        return jsonify({"error": "APIキーが設定されていません。設定画面で入力するかサーバーの環境変数を確認してください。"}), 400
 
     try:
-        completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+        # リクエストごとにクライアントを生成（カスタムキー対応のため）
+        dynamic_client = Groq(api_key=active_api_key)
+        
+        completion = dynamic_client.chat.completions.create(
+            model=model_name,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message}
@@ -35,4 +49,6 @@ def chat():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    # Render等の環境に対応するためPORT環境変数も考慮
+    port = int(os.environ.get("PORT", 5000))
+    app.run(debug=True, host='0.0.0.0', port=port)
