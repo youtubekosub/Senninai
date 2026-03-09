@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: sennin-ai-service
+    runtime: python
+    plan: free # 無料プランを指定
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false # Renderのダッシュボードで手動設定するか、以下にプレースホルダーを表示
+      - key: PYTHON_VERSION
+        value: 3.10.0
+      - key: FLASK_ENV
+        value: production
